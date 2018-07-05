@@ -19,7 +19,6 @@ import (
 	"github.com/containernetworking/cni/pkg/ns"
 	"github.com/containernetworking/cni/pkg/skel"
 	"github.com/containernetworking/cni/pkg/types"
-	deviceApi "github.com/intel/sriov-network-device-plugin/api"
 	"github.com/vishvananda/netlink"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
@@ -40,6 +39,12 @@ type dpdkConf struct {
 	VFID       int    `json: "vfid"`
 }
 
+type VfInformation struct {
+	PCIaddr	string	`json:"pci_addr"`
+        Pfname	string	`json:"pfname"`
+        Vfid	int32	`json:"vfid"`
+}
+
 type NetConf struct {
 	types.NetConf
 	DPDKMode   bool
@@ -50,7 +55,7 @@ type NetConf struct {
 	IF0NAME    string                  `json:"if0name"`
 	L2Mode     bool                    `json:"l2enable"`
 	Vlan       int                     `json:"vlan"`
-	DeviceInfo deviceApi.VfInformation `json:"deviceinfo"`
+	DeviceInfo VfInformation	   `json:"deviceinfo"`
 }
 
 type K8sArgs struct {
@@ -107,10 +112,10 @@ func loadConf(bytes []byte) (*NetConf, error) {
 		}
 	}
 
-	if n.IF0 == "" && n.DeviceInfo.GetPfname() == "" {
+	if n.IF0 == "" && n.DeviceInfo.Pfname == "" {
 		return nil, fmt.Errorf(`either "if0" OR "deviceid" field is required. It specifies the host interface name to virtualize`)
 	} else if n.IF0 == "" {
-		n.IF0 = n.DeviceInfo.GetPfname()
+		n.IF0 = n.DeviceInfo.Pfname
 	}
 
 	if n.CNIDir == "" {
@@ -363,9 +368,9 @@ func getDeviceNameFromPci(pciaddr string) (string, error) {
 func setupWithVfInfo(conf *NetConf, netns ns.NetNS, cid, podifName string) error {
 	var err error
 
-	vfPciAddr := conf.DeviceInfo.GetPciaddr()
-	pfName := conf.DeviceInfo.GetPfname()
-	vfId := int(conf.DeviceInfo.GetVfid())
+	vfPciAddr := conf.DeviceInfo.PCIaddr
+	pfName := conf.DeviceInfo.Pfname
+	vfId := int(conf.DeviceInfo.Vfid)
 
 	// Get PF link with given name
 	m, err := netlink.LinkByName(pfName)
@@ -635,7 +640,7 @@ func releaseVF(conf *NetConf, podifName string, cid string, netns ns.NetNS) erro
 			if err != nil {
 				return fmt.Errorf("sriov master device %s not found: %v", pfName, err)
 			}
-			return netlink.LinkSetVfVlan(pfLink, int(conf.DeviceInfo.GetVfid()), 0)
+			return netlink.LinkSetVfVlan(pfLink, int(conf.DeviceInfo.Vfid), 0)
 		})
 		if err != nil {
 			return fmt.Errorf("failed to reset vlan: %v", err)
@@ -769,17 +774,17 @@ func cmdAdd(args *skel.CmdArgs) error {
 	// try to get VF pci address from pod annotations
 	// reset Vfid according to pci address from pod annotations
 	// set DeviceInfo.Pfname to n.IF0
-	if n.DeviceInfo.GetPciaddr() == "" {
-		n.DeviceInfo.Pciaddr = getVfPciaddrFromPodAnnotation(&k8sArgs, kubeConf)
-		if n.DeviceInfo.Pciaddr != "" && n.IF0 != ""{
-			n.DeviceInfo.Vfid = int32(getVfId(n.DeviceInfo.Pciaddr, n.IF0))
+	if n.DeviceInfo.PCIaddr == "" {
+		n.DeviceInfo.PCIaddr = getVfPciaddrFromPodAnnotation(&k8sArgs, kubeConf)
+		if n.DeviceInfo.PCIaddr != "" && n.IF0 != ""{
+			n.DeviceInfo.Vfid = int32(getVfId(n.DeviceInfo.PCIaddr, n.IF0))
 		}
 		if n.DeviceInfo.Pfname == "" && n.IF0 != "" {
 			n.DeviceInfo.Pfname = n.IF0
 		}
 	}
 
-	if n.DeviceInfo.GetPciaddr() != "" && n.DeviceInfo.GetVfid() >= 0 && n.DeviceInfo.GetPfname() != "" {
+	if n.DeviceInfo.PCIaddr != "" && n.DeviceInfo.Vfid >= 0 && n.DeviceInfo.Pfname != "" {
 		if err = setupWithVfInfo(n, netns, args.ContainerID, args.IfName); err != nil {
 			return err
 		}
