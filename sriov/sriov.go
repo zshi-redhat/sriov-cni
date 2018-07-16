@@ -25,10 +25,15 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 )
 
-const defaultCNIDir = "/var/lib/cni/sriov"
-const maxSharedVf = 2
-const kubeConf = "/etc/kubernetes/admin.conf"
-const SriovAnnotationKey = "TEST-SRIOV-VF-INFO"
+const (
+	defaultCNIDir = "/var/lib/cni/sriov"
+	maxSharedVf = 2
+	kubeConf = "/etc/kubernetes/admin.conf"
+	SriovAnnotationKey = "TEST-SRIOV-VF-INFO"
+	netDirectory    = "/sys/class/net/"
+	sriovCapable    = "/sriov_totalvfs"
+	sriovConfigured = "/sriov_numvfs"
+)
 
 type dpdkConf struct {
 	PCIaddr    string `json:"pci_addr"`
@@ -42,7 +47,7 @@ type dpdkConf struct {
 type VfInformation struct {
 	PCIaddr	string	`json:"pci_addr"`
         Pfname	string	`json:"pfname"`
-        Vfid	int32	`json:"vfid"`
+        Vfid	int	`json:"vfid"`
 }
 
 type NetConf struct {
@@ -110,12 +115,6 @@ func loadConf(bytes []byte) (*NetConf, error) {
 		if err != true {
 			return nil, fmt.Errorf(`"if0name" field should not be  equal to (eth0 | eth1 | lo | ""). It specifies the virtualized interface name in the pod`)
 		}
-	}
-
-	if n.IF0 == "" && n.DeviceInfo.Pfname == "" {
-		return nil, fmt.Errorf(`either "if0" OR "deviceid" field is required. It specifies the host interface name to virtualize`)
-	} else if n.IF0 == "" {
-		n.IF0 = n.DeviceInfo.Pfname
 	}
 
 	if n.CNIDir == "" {
@@ -693,19 +692,19 @@ func resetVfVlan(pfName, vfName string) error {
 	return nil
 }
 
-func getVfPciaddrFromPodAnnotation(k *K8sArgs, kubeconfig string) string {
+func getVfPciaddrFromPodAnnotation(k *K8sArgs, kubeconfig string) (string, error) {
+	var pci string
 	config, err := clientcmd.BuildConfigFromFlags("", kubeconfig)
         if err != nil {
 		fmt.Errorf("Error. createK8sClient: failed to get context for the kubeconfig %v.", kubeconfig)
-                return ""
+                return pci, err
         }
 	clientset, err := kubernetes.NewForConfig(config)
         if err != nil {
                 fmt.Errorf("Error. Could not create K8s Client using supplied config. %v", err)
-                return ""
+                return pci, err
         }
 
-	pciAddrs := ""
 	for i := 0; i <= 5; i++ {
 		pod, err := clientset.CoreV1().Pods(string(k.K8S_POD_NAMESPACE)).Get(string(k.K8S_POD_NAME), metav1.GetOptions{})
 		if err != nil {
@@ -716,18 +715,18 @@ func getVfPciaddrFromPodAnnotation(k *K8sArgs, kubeconfig string) string {
 		if a[SriovAnnotationKey] == "" {
 			time.Sleep(1 * time.Second)
 		} else {
-			pciAddrs = a[SriovAnnotationKey]
-			return pciAddrs[:len(pciAddrs)-1]
+			pci = a[SriovAnnotationKey]
+			return pci[:len(pci)-1], nil
 		}
 	}
-	return pciAddrs
-
+	return pci, nil
 }
 
-func getVfId(pciAddrs string, pfName string) int {
+func getVfId(pciAddrs string, pfName string) (int, error) {
+	var id int
 	vfTotal, err := getsriovNumfs(pfName)
 	if err != nil {
-		return 0
+		return id, err
 	}
 	for vf := 0; vf <= vfTotal; vf++ {
 		vfDir := fmt.Sprintf("/sys/class/net/%s/device/virtfn%d", pfName, vf)
@@ -743,10 +742,89 @@ func getVfId(pciAddrs string, pfName string) int {
 		}
 		pciaddr := pciinfo[len("../"):]
 		if pciaddr == pciAddrs {
-			return vf
+			return vf, nil
 		}
 	}
-	return 0
+	return id, nil
+}
+
+// Returns a list of SRIOV capable PF names as string
+func getSriovPfList() ([]string, error) {
+
+        sriovNetDevices := []string{}
+
+        netDevices, err := ioutil.ReadDir(netDirectory)
+        if err != nil {
+                fmt.Errorf("Error. Cannot read %s for network device names. Err: %v", netDirectory, err)
+                return sriovNetDevices, err
+        }
+
+        if len(netDevices) < 1 {
+                fmt.Errorf("Error. No network device found in %s directory", netDirectory)
+                return sriovNetDevices, err
+        }
+
+        for _, dev := range netDevices {
+                sriovFilePath := filepath.Join(netDirectory, dev.Name(), "device", "sriov_numvfs")
+
+                if f, err := os.Lstat(sriovFilePath); !os.IsNotExist(err) {
+                        if f.Mode().IsRegular() { // and its a regular file
+                                sriovNetDevices = append(sriovNetDevices, dev.Name())
+                        }
+                }
+        }
+
+        return sriovNetDevices, nil
+}
+
+func getPfName(pciAddr string) (string, error) {
+	var pci string
+        // Get a list of SRIOV capable NICs in the host
+        pfList, err := getSriovPfList()
+        if err != nil {
+                return pci, err
+        }
+
+        if len(pfList) < 1 {
+                fmt.Errorf("Error. No SRIOV network device found")
+                return pci, fmt.Errorf("Error. No SRIOV network device found")
+        }
+	for _, dev := range pfList {
+		sriovconfiguredpath := netDirectory + dev + "/device" + sriovConfigured
+		vfs, err := ioutil.ReadFile(sriovconfiguredpath)
+		if err != nil {
+			fmt.Errorf("Error. Could not read sriov_numvfs file of dev: %s. SRIOV error. %v", dev, err)
+			continue
+		}
+		configuredVFs := bytes.TrimSpace(vfs)
+		numconfiguredvfs, err := strconv.Atoi(string(configuredVFs))
+		if err != nil {
+			fmt.Errorf("Error. Could not parse sriov_numvfs files. Skipping device: %s. Err: %v", dev, err)
+			continue
+		}
+		for vf := 0; vf < numconfiguredvfs; vf++ {
+			vfDir := fmt.Sprintf("/sys/class/net/%s/device/virtfn%d", dev, vf)
+			dirInfo, err := os.Lstat(vfDir)
+			if err != nil {
+				fmt.Errorf("Error. Could not get directory information for device: %s, VF: %v. Err: %v", dev, vf, err)
+				continue
+			}
+			if (dirInfo.Mode() & os.ModeSymlink) == 0 {
+				fmt.Errorf("Error. No symbolic link between virtual function and PCI - Device: %s, VF: %v", dev, vf)
+				continue
+			}
+			pciInfo, err := os.Readlink(vfDir)
+			if err != nil {
+				fmt.Errorf("Error. Cannot read symbolic link between virtual function and PCI - Device: %s, VF: %v. Err: %v", dev, vf, err)
+				continue
+			}
+			addr := pciInfo[len("../"):]
+			if addr == pciAddr {
+				return dev, nil
+			}
+		}
+	}
+	return pci, nil
 }
 
 func cmdAdd(args *skel.CmdArgs) error {
@@ -775,12 +853,22 @@ func cmdAdd(args *skel.CmdArgs) error {
 	// reset Vfid according to pci address from pod annotations
 	// set DeviceInfo.Pfname to n.IF0
 	if n.DeviceInfo.PCIaddr == "" {
-		n.DeviceInfo.PCIaddr = getVfPciaddrFromPodAnnotation(&k8sArgs, kubeConf)
-		if n.DeviceInfo.PCIaddr != "" && n.IF0 != ""{
-			n.DeviceInfo.Vfid = int32(getVfId(n.DeviceInfo.PCIaddr, n.IF0))
+		n.DeviceInfo.PCIaddr, err = getVfPciaddrFromPodAnnotation(&k8sArgs, kubeConf)
+		if err != nil {
+			return fmt.Errorf("Error in getting VF pci address from Pod annotation")
 		}
-		if n.DeviceInfo.Pfname == "" && n.IF0 != "" {
-			n.DeviceInfo.Pfname = n.IF0
+		if n.DeviceInfo.PCIaddr != "" {
+			n.DeviceInfo.Pfname, err = getPfName(n.DeviceInfo.PCIaddr)
+			if err != nil {
+				return fmt.Errorf("Error in getting PF name from VF pci address")
+			}
+			n.DeviceInfo.Vfid, err = getVfId(n.DeviceInfo.PCIaddr, n.DeviceInfo.Pfname)
+			if err != nil {
+				return fmt.Errorf("Error in getting VF id")
+			}
+		}
+		if n.DeviceInfo.PCIaddr == "" && n.IF0 == "" {
+			return fmt.Errorf("Error. either 'if0' OR 'deviceid' field is required. It specifies the host interface name to virtualize")
 		}
 	}
 
