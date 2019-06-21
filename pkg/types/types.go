@@ -9,6 +9,8 @@ type NetConf struct {
 	types.NetConf
 	DPDKMode    bool
 	Master      string
+	MAC         string
+	OriginalMAC string `json:"originalMAC"`
 	Vlan        int    `json:"vlan"`
 	DeviceID    string `json:"deviceID"` // PCI address of a VF in valid sysfs format
 	VFID        int
