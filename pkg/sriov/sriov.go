@@ -25,6 +25,11 @@ type NetlinkManager interface {
 	LinkSetDown(netlink.Link) error
 	LinkSetNsFd(netlink.Link, int) error
 	LinkSetName(netlink.Link, string) error
+	LinkSetVfTxRate(netlink.Link, int, int) error
+	LinkSetVfSpoofchk(netlink.Link, int, bool) error
+	LinkSetVfTrust(netlink.Link, int, bool) error
+	LinkSetVfNodeGUID(netlink.Link, int, net.HardwareAddr) error
+	LinkSetVfPortGUID(netlink.Link, int, net.HardwareAddr) error
 }
 
 // MyNetlink NetlinkManager
@@ -70,6 +75,31 @@ func (n *MyNetlink) LinkSetNsFd(link netlink.Link, fd int) error {
 // LinkSetName using NetlinkManager
 func (n *MyNetlink) LinkSetName(link netlink.Link, name string) error {
 	return netlink.LinkSetName(link, name)
+}
+
+// LinkSetVfTxRate using NetlinkManager
+func (n *MyNetlink) LinkSetVfTxRate(link netlink.Link, vf int, rate int) error {
+	return netlink.LinkSetVfTxRate(link, vf, rate)
+}
+
+// LinkSetVfSpoofchk using NetlinkManager
+func (n *MyNetlink) LinkSetVfSpoofchk(link netlink.Link, vf int, check bool) error {
+	return netlink.LinkSetVfSpoofchk(link, vf, check)
+}
+
+// LinkSetVfTrust using NetlinkManager
+func (n *MyNetlink) LinkSetVfTrust(link netlink.Link, vf int, state bool) error {
+	return netlink.LinkSetVfTrust(link, vf, state)
+}
+
+// LinkSetVfNodeGUID using NetlinkManager
+func (n *MyNetlink) LinkSetVfNodeGUID(link netlink.Link, vf int, nodeguid net.HardwareAddr) error {
+	return netlink.LinkSetVfNodeGUID(link, vf, nodeguid)
+}
+
+// LinkSetVfPortGUID using NetlinkManager
+func (n *MyNetlink) LinkSetVfPortGUID(link netlink.Link, vf int, portguid net.HardwareAddr) error {
+	return netlink.LinkSetVfPortGUID(link, vf, portguid)
 }
 
 type pciUtils interface {
@@ -309,7 +339,48 @@ func (s *sriovManager) ApplyVFConfig(conf *sriovtypes.NetConf) error {
 		}
 	}
 
-	// 3. Set link rate
+	// 3. Set link rate.
+	if conf.MaxTxRate != nil {
+		if err = s.nLink.LinkSetVfTxRate(pfLink, conf.VFID, *conf.MaxTxRate); err != nil {
+			return fmt.Errorf("failed to set vf %d max_tx_rate to %d Mbps: %v", conf.VFID, conf.MaxTxRate, err)
+		}
+	}
+
+	// 4. Set spoofchk flag
+	if conf.SpoofChk != "" {
+		spoofChk := false
+		if conf.SpoofChk == "on" {
+			spoofChk = true
+		}
+		if err = s.nLink.LinkSetVfSpoofchk(pfLink, conf.VFID, spoofChk); err != nil {
+			return fmt.Errorf("failed to set vf %d spoofchk flag to %s: %v", conf.VFID, conf.SpoofChk, err)
+		}
+	}
+
+	// 5. Set trust flag
+	if conf.Trust != "" {
+		trust := false
+		if conf.Trust == "on" {
+			trust = true
+		}
+		if err = s.nLink.LinkSetVfTrust(pfLink, conf.VFID, trust); err != nil {
+			return fmt.Errorf("failed to set vf %d trust flag to %s: %v", conf.VFID, conf.Trust, err)
+		}
+	}
+
+	// 6. Set node guid for Infiniband
+	if conf.NodeGUID != nil {
+		if err = s.nLink.LinkSetVfNodeGUID(pfLink, conf.VFID, conf.NodeGUID); err != nil {
+			return fmt.Errorf("failed to set vf %d node guid to %s: %v", conf.VFID, conf.NodeGUID, err)
+		}
+	}
+
+	// 7. Set port guid for Infiniband
+	if conf.PortGUID != nil {
+		if err = s.nLink.LinkSetVfPortGUID(pfLink, conf.VFID, conf.PortGUID); err != nil {
+			return fmt.Errorf("failed to set vf %d node guid to %s: %v", conf.VFID, conf.PortGUID, err)
+		}
+	}
 
 	return nil
 }
