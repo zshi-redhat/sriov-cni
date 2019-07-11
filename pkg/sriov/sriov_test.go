@@ -83,6 +83,76 @@ func (_m *MockNetlinkManager) LinkSetHardwareAddr(_a0 netlink.Link, _a1 net.Hard
 	return r0
 }
 
+// LinkSetVfTxRate provides a mock function with given fields: _a0, _a1, _a2
+func (_m *MockNetlinkManager) LinkSetVfTxRate(_a0 netlink.Link, _a1 int, _a2 int) error {
+	ret := _m.Called(_a0, _a1, _a2)
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(netlink.Link, int, int) error); ok {
+		r0 = rf(_a0, _a1, _a2)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// LinkSetVfSpoofchk provides a mock function with given fields: _a0, _a1, _a2
+func (_m *MockNetlinkManager) LinkSetVfSpoofchk(_a0 netlink.Link, _a1 int, _a2 bool) error {
+	ret := _m.Called(_a0, _a1, _a2)
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(netlink.Link, int, bool) error); ok {
+		r0 = rf(_a0, _a1, _a2)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// LinkSetVfTrust provides a mock function with given fields: _a0, _a1, _a2
+func (_m *MockNetlinkManager) LinkSetVfTrust(_a0 netlink.Link, _a1 int, _a2 bool) error {
+	ret := _m.Called(_a0, _a1, _a2)
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(netlink.Link, int, bool) error); ok {
+		r0 = rf(_a0, _a1, _a2)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// LinkSetVfNodeGUID provides a mock function with given fields: _a0, _a1, _a2
+func (_m *MockNetlinkManager) LinkSetVfNodeGUID(_a0 netlink.Link, _a1 int, _a2 net.HardwareAddr) error {
+	ret := _m.Called(_a0, _a1, _a2)
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(netlink.Link, int, net.HardwareAddr) error); ok {
+		r0 = rf(_a0, _a1, _a2)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// LinkSetVfPortGUID provides a mock function with given fields: _a0, _a1, _a2
+func (_m *MockNetlinkManager) LinkSetVfPortGUID(_a0 netlink.Link, _a1 int, _a2 net.HardwareAddr) error {
+	ret := _m.Called(_a0, _a1, _a2)
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(netlink.Link, int, net.HardwareAddr) error); ok {
+		r0 = rf(_a0, _a1, _a2)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
 // LinkSetUp provides a mock function with given fields: _a0
 func (_m *MockNetlinkManager) LinkSetUp(_a0 netlink.Link) error {
 	ret := _m.Called(_a0)
